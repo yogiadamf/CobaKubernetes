@@ -1,0 +1,50 @@
+on: [push]
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+    
+    - uses: azure/docker-login@v1
+      with:
+        login-server: cobakubernetes12.azurecr.io
+        username: ${{ secrets.acr_cobakubernetes12_username }}
+        password: ${{ secrets.acr_cobakubernetes12_password }}
+    
+    - name: Build and push image to ACR
+      id: build-image
+      run: |
+        docker build "$GITHUB_WORKSPACE/" -f  "Dockerfile" -t cobakubernetes12.azurecr.io/implementasikubernetes:${{ github.sha }}
+        docker push cobakubernetes12.azurecr.io/implementasikubernetes:${{ github.sha }}
+    
+    - uses: azure/k8s-set-context@v1
+      with:
+         kubeconfig: ${{ secrets.aks_implementasikubernetes_kubeConfig }}
+      id: login
+    
+    - name: Create namespace
+      run: |
+        namespacePresent=`kubectl get namespace | grep implementasikubernetes840e | wc -l`
+        if [ $namespacePresent -eq 0 ]
+        then
+            echo `kubectl create namespace implementasikubernetes840e`
+        fi
+
+    - uses: azure/k8s-create-secret@v1
+      with:
+        namespace: implementasikubernetes840e
+        container-registry-url: cobakubernetes12.azurecr.io
+        container-registry-username: ${{ secrets.acr_cobakubernetes12_username }}
+        container-registry-password: ${{ secrets.acr_cobakubernetes12_password }}
+        secret-name: implementasidockerauth
+       
+    - uses: azure/k8s-deploy@v1.2
+      with:
+        namespace: implementasikubernetes840e
+        manifests: |
+          manifests/deployment.yml
+          manifests/service.yml
+        images: |
+          cobakubernetes12.azurecr.io/implementasikubernetes:${{ github.sha }}
+        imagepullsecrets: |
+          implementasidockerauth
